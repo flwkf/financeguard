@@ -18,7 +18,8 @@ if not MONGO_URI:
     st.stop()
 
 client = MongoClient(MONGO_URI)
-db = client.get_default_database()  # gunakan default db dari URI
+db_name = "financeguard"   # bebas, sesuaikan sendiri
+db = client[db_name]
 sources_col = db["wallet_sources"]
 expenses_col = db["expenses"]
 
