@@ -125,12 +125,17 @@ with tabs[2]:
         t_type = st.selectbox("Jenis", ["income","expense","transfer"])
         
         if t_type=="income":
-            w_to = st.selectbox("Dompet Penerima", wallet_keys, format_func=lambda x: wallet_map[x])
+            wallet_label = "Dompet Penerima"
+            selected_wallet = st.selectbox(wallet_label, wallet_keys, format_func=lambda x: wallet_map[x])
+        
         elif t_type=="expense":
-            w_from = st.selectbox("Dompet Sumber", wallet_keys, format_func=lambda x: wallet_map[x])
-        else:
+            wallet_label = "Dompet Sumber"
+            selected_wallet = st.selectbox(wallet_label, wallet_keys, format_func=lambda x: wallet_map[x])
+        
+        else:  # transfer
             w_from = st.selectbox("Dari Dompet", wallet_keys, format_func=lambda x: wallet_map[x])
             w_to = st.selectbox("Ke Dompet", wallet_keys, format_func=lambda x: wallet_map[x])
+
 
         amount = st.number_input("Nominal", min_value=0.0, format="%.2f")
         desc = st.text_input("Keterangan (opsional)")
@@ -143,11 +148,11 @@ with tabs[2]:
 
             dt = datetime.combine(date_input, datetime.min.time())
 
-            if t_type=="income":
-                insert_transaction({"type":"income","source_id":w_to,"amount": amount,"description":desc,"created_at":dt})
-
-            elif t_type=="expense":
-                insert_transaction({"type":"expense","source_id":w_from,"amount": amount,"description":desc,"created_at":dt})
+            if t_type == "income":
+                insert_transaction({"type":"income","source_id":selected_wallet,"amount":amount,"description":desc,"created_at":dt})
+            
+            elif t_type == "expense":
+                insert_transaction({"type":"expense","source_id":selected_wallet,"amount":amount,"description":desc,"created_at":dt})
 
             else:
                 if w_from == w_to:
