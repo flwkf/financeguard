@@ -26,7 +26,7 @@ if not MONGO_URI:
 
 client = MongoClient(MONGO_URI)
 db = client.get_database("financeguard")  # gunakan db bernama financeguard
-wallets_col = db["wallets"]
+wallets_col = db["wallet_sources"]
 trx_col = db["transactions"]
 
 # ---------------------------
