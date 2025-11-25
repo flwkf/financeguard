@@ -169,68 +169,96 @@ with tabs[1]:
 with tabs[2]:
     st.title("💸 Tambah Transaksi")
     wallet_map = load_wallets()
+
     if not wallet_map:
         st.info("Belum ada dompet. Tambah dompet dulu di tab 'Tambah Dompet'.")
     else:
+        wallet_keys = list(wallet_map.keys())
+
         with st.form("form_trx", clear_on_submit=True):
             ttype = st.selectbox("Jenis Transaksi", ["income","expense","transfer"])
+
             if ttype == "income":
-                w_to = st.selectbox("Dompet Tujuan", list(wallet_map.keys()), format_func=lambda k: wallet_map[k])
+                w_to = st.selectbox(
+                    "Dompet Tujuan",
+                    wallet_keys,
+                    format_func=lambda k: wallet_map[k]
+                )
+
             elif ttype == "expense":
-                w_from = st.selectbox("Dompet Sumber", list(wallet_map.keys()), format_func=lambda k: wallet_map[k])
+                w_from = st.selectbox(
+                    "Dompet Sumber",
+                    wallet_keys,
+                    format_func=lambda k: wallet_map[k]
+                )
             else:
-                w_from = st.selectbox("Dari (Dompet)", list(wallet_map.keys()), format_func=lambda k: wallet_map[k])
-                w_to = st.selectbox("Ke (Dompet)", list(wallet_map.keys()), format_func=lambda k: wallet_map[k])
+                # ⬇⬇⬇ INI YANG DIPERBAIKI (PASTI MUNCUL)
+                w_from = st.selectbox(
+                    "Dari (Dompet)",
+                    wallet_keys,
+                    format_func=lambda k: wallet_map[k]
+                )
+                w_to = st.selectbox(
+                    "Ke (Dompet)",
+                    wallet_keys,
+                    format_func=lambda k: wallet_map[k]
+                )
 
             amount = st.number_input("Nominal (Rp)", min_value=0.0, format="%.2f")
             desc = st.text_input("Deskripsi / Catatan (opsional)")
             date_input = st.date_input("Tanggal transaksi", value=date.today())
+
             submit = st.form_submit_button("Simpan Transaksi")
 
             if submit:
                 if amount <= 0:
-                    st.error("Nominal harus > 0")
-                else:
-                    if ttype == "income":
-                        insert_transaction({
-                            "type":"income",
-                            "source_id": w_to,
-                            "target_id": None,
-                            "amount": float(amount),
-                            "description": desc,
-                            "created_at": datetime.combine(date_input, datetime.min.time())
-                        })
-                    elif ttype == "expense":
-                        insert_transaction({
-                            "type":"expense",
-                            "source_id": w_from,
-                            "target_id": None,
-                            "amount": float(amount),
-                            "description": desc,
-                            "created_at": datetime.combine(date_input, datetime.min.time())
-                        })
-                    else:  # transfer -> create two records for traceability
-                        if w_from == w_to:
-                            st.error("Dompet asal dan tujuan tidak boleh sama")
-                        else:
-                            insert_transaction({
-                                "type":"transfer_out",
-                                "source_id": w_from,
-                                "target_id": w_to,
-                                "amount": float(amount),
-                                "description": desc,
-                                "created_at": datetime.combine(date_input, datetime.min.time())
-                            })
-                            insert_transaction({
-                                "type":"transfer_in",
-                                "source_id": w_from,
-                                "target_id": w_to,
-                                "amount": float(amount),
-                                "description": desc,
-                                "created_at": datetime.combine(date_input, datetime.min.time())
-                            })
-                    st.success("Transaksi tersimpan")
-                    st.rerun()
+                    st.error("Nominal harus lebih besar dari 0")
+                    st.stop()
+
+                if ttype == "income":
+                    insert_transaction({
+                        "type": "income",
+                        "source_id": w_to,
+                        "target_id": None,
+                        "amount": float(amount),
+                        "description": desc,
+                        "created_at": datetime.combine(date_input, datetime.min.time())
+                    })
+
+                elif ttype == "expense":
+                    insert_transaction({
+                        "type": "expense",
+                        "source_id": w_from,
+                        "target_id": None,
+                        "amount": float(amount),
+                        "description": desc,
+                        "created_at": datetime.combine(date_input, datetime.min.time())
+                    })
+
+                else:  # transfer
+                    if w_from == w_to:
+                        st.error("Dompet asal dan tujuan tidak boleh sama")
+                        st.stop()
+
+                    insert_transaction({
+                        "type": "transfer_out",
+                        "source_id": w_from,
+                        "target_id": w_to,
+                        "amount": float(amount),
+                        "description": desc,
+                        "created_at": datetime.combine(date_input, datetime.min.time())
+                    })
+                    insert_transaction({
+                        "type": "transfer_in",
+                        "source_id": w_from,
+                        "target_id": w_to,
+                        "amount": float(amount),
+                        "description": desc,
+                        "created_at": datetime.combine(date_input, datetime.min.time())
+                    })
+
+                st.success("Transaksi berhasil disimpan")
+                st.rerun()
 
 # ---------------------------
 # TAB: Riwayat (edit / delete / filter)
