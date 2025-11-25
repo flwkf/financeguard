@@ -19,12 +19,27 @@ transactions_col = db["transactions"]
 
 st.title("📒 Aplikasi Pengelolaan Dompet & Pengeluaran")
 
+
+
+
+# ================================
+# FUNGSI MEMUAT DOMPET
+# ================================
+def load_sources():
+    data = list(sources_col.find())
+    return {str(d["_id"]): d["name"] for d in data}
+
+# ================================
+# REFRESH DOMPET
+# ================================
+source_options = load_sources()
+
 # ================================
 # RINGKASAN SALDO DI ATAS
 # ================================
 st.markdown("## 💼 Ringkasan Saldo")
 
-# pastikan df transaksi sudah ada
+# ambil transaksi dari DB
 transactions = list(transactions_col.find({}))
 df_summary = pd.DataFrame(transactions)
 
@@ -32,7 +47,7 @@ df_summary = pd.DataFrame(transactions)
 if len(df_summary) == 0:
     df_summary = pd.DataFrame(columns=["type","source_id","target_id","amount"])
 
-# hitung saldo tiap dompet
+# hitung saldo masing-masing dompet
 summary_saldo = {}
 
 for sid, name in source_options.items():
@@ -48,13 +63,12 @@ for sid, name in source_options.items():
 
     summary_saldo[name] = saldo_akhir
 
+# hitung total keseluruhan
 total_semua = sum(summary_saldo.values())
 
-
-# ======== TAMPILKAN DALAM KOTAK / CARD ========
+# tampilkan dalam card
 cols = st.columns(len(summary_saldo) + 1)
 
-# tampilkan dompet satu per satu
 i = 0
 for dompet, nilai in summary_saldo.items():
     with cols[i]:
@@ -64,21 +78,12 @@ for dompet, nilai in summary_saldo.items():
         )
     i += 1
 
-# kotak total saldo keseluruhan
+# total keseluruhan
 with cols[-1]:
     st.metric(
         label="💰 Total Seluruh Dompet",
         value=f"Rp {total_semua:,.0f}"
     )
-
-
-# ================================
-# FUNGSI MEMUAT DOMPET
-# ================================
-def load_sources():
-    data = list(sources_col.find())
-    return {str(d["_id"]): d["name"] for d in data}
-
 
 # ================================
 # BAGIAN 1: TAMBAH DOMPET
@@ -92,12 +97,9 @@ with st.form("add_wallet"):
 if submit_dompet and nama_dompet.strip():
     sources_col.insert_one({"name": nama_dompet})
     st.success(f"Dompet '{nama_dompet}' berhasil ditambahkan!")
+    st.rerun()
 
 
-# ================================
-# REFRESH DOMPET
-# ================================
-source_options = load_sources()
 
 # ================================
 # BAGIAN: INPUT PEMASUKAN
@@ -123,7 +125,7 @@ if submit_inc and amount_inc > 0:
         "created_at": datetime.now()
     })
     st.success("Pemasukan berhasil dicatat!")
-
+    st.rerun()
 # ================================
 # BAGIAN 2: INPUT PENGELUARAN
 # ================================
@@ -145,7 +147,7 @@ if submit_exp and amount_exp > 0:
         "created_at": datetime.now()
     })
     st.success("Pengeluaran berhasil dicatat!")
-
+    st.rerun()
 
 # ================================
 # BAGIAN 3: TRANSFER ANTAR DOMPET
@@ -185,7 +187,7 @@ if submit_trf and amount_trf > 0 and from_src != to_src:
     })
 
     st.success("Transfer berhasil dicatat!")
-
+    st.rerun()
 
 # ================================
 # LOAD TRANSAKSI
