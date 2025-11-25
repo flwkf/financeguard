@@ -177,7 +177,7 @@ with tabs[2]:
         wallet_options = wallet_keys # list of wallet IDs
 
         with st.form("form_trx", clear_on_submit=True):
-            ttype = st.selectbox("Jenis Transaksi", ["income","expense","transfer"], key="main_ttype")
+            ttype = st.selectbox("Jenis Transaksi", ["Pilih","income","expense","transfer"], key="main_ttype")
 
             # Inisialisasi placeholder di awal
             w_from = None
