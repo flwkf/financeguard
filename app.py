@@ -232,16 +232,81 @@ st.dataframe(
 
 
 # ================================
-# BAGIAN 6: RIWAYAT TRANSAKSI
+# BAGIAN 6: RIWAYAT TRANSAKSI + EDIT
 # ================================
 st.subheader("📚 Riwayat Transaksi")
 
-if len(df) > 0:
+if len(df) == 0:
+    st.info("Belum ada transaksi.")
+else:
     show_df = df.copy()
     show_df["source"] = show_df["source_id"].astype(str).map(source_options)
     show_df["target"] = show_df["target_id"].astype(str).map(source_options)
+    show_df["id"] = show_df["_id"].astype(str)
+
     st.dataframe(show_df[[
-        "created_at", "type", "source", "target", "description", "amount"
+        "id", "created_at", "type", "source", "target", "description", "amount"
     ]])
-else:
-    st.info("Belum ada transaksi.")
+
+    st.markdown("### ✏ Edit Transaksi")
+
+    # pilih transaksi
+    trx_id = st.selectbox(
+        "Pilih transaksi yang ingin diedit",
+        show_df["id"].tolist()
+    )
+
+    trx = df[df["_id"].astype(str) == trx_id].iloc[0]
+
+    # form edit
+    with st.form("edit_form"):
+        new_type = st.selectbox(
+            "Jenis Transaksi",
+            ["income", "expense", "transfer_in", "transfer_out"],
+            index=["income", "expense", "transfer_in", "transfer_out"].index(trx["type"])
+        )
+
+        new_source = st.selectbox(
+            "Dompet Sumber",
+            list(source_options.keys()),
+            index=list(source_options.keys()).index(str(trx.get("source_id", ""))),
+            format_func=lambda x: source_options[x]
+        )
+
+        # hanya untuk transfer
+        if new_type in ["transfer_in", "transfer_out"]:
+            new_target = st.selectbox(
+                "Dompet Tujuan",
+                list(source_options.keys()),
+                index=list(source_options.keys()).index(str(trx.get("target_id", ""))),
+                format_func=lambda x: source_options[x]
+            )
+        else:
+            new_target = None
+
+        new_amount = st.number_input("Nominal", min_value=0.0, value=float(trx["amount"]))
+        new_desc = st.text_input("Deskripsi", value=trx.get("description", ""))
+
+        save_edit = st.form_submit_button("💾 Simpan Perubahan")
+
+    # proses update
+    if save_edit:
+        update_data = {
+            "type": new_type,
+            "source_id": new_source,
+            "amount": new_amount,
+            "description": new_desc
+        }
+
+        # target hanya untuk transfer
+        if new_type in ["transfer_in", "transfer_out"]:
+            update_data["target_id"] = new_target
+        else:
+            update_data["target_id"] = None
+
+        transactions_col.update_one(
+            {"_id": ObjectId(trx_id)},
+            {"$set": update_data}
+        )
+
+        st.success("Transaksi berhasil diperbarui! Silakan refresh halaman.")
