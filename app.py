@@ -187,24 +187,38 @@ else:
 # ================================
 st.subheader("💰 Saldo Setiap Dompet")
 
+# Pastikan kolom yang mungkin hilang tetap ada
+for col in ["source_id", "target_id", "type", "amount"]:
+    if col not in df.columns:
+        df[col] = None
+
 saldo = {}
 
 for sid, name in source_options.items():
 
-    # uang masuk dari transfer_in
-    df_in = df[df["target_id"].astype(str) == sid]
-
-    # uang keluar: transfer_out + pengeluaran
+    # ambil transaksi yang sumbernya dompet ini
     df_out = df[df["source_id"].astype(str) == sid]
 
-    total_transfer_in = df_in[df_in["type"] == "transfer_in"]["amount"].sum()
+    # ambil transaksi yang masuk ke dompet ini
+    df_in = df[df["target_id"].astype(str) == sid]
+
+    # hitung pemasukan
     total_income = df_out[df_out["type"] == "income"]["amount"].sum()
 
+    # transfer masuk
+    total_transfer_in = df_in[df_in["type"] == "transfer_in"]["amount"].sum()
+
+    # pengeluaran
     total_expense = df_out[df_out["type"] == "expense"]["amount"].sum()
+
+    # transfer keluar
     total_transfer_out = df_out[df_out["type"] == "transfer_out"]["amount"].sum()
 
-    saldo[name] = (total_transfer_in + total_income) - (total_expense + total_transfer_out)
+    # rumus saldo akhir
+    saldo[name] = (total_income + total_transfer_in) - (total_expense + total_transfer_out)
 
+
+# tampilkan tabel saldo rapi
 saldo_df = pd.DataFrame([
     {"Dompet": name, "Saldo": amount}
     for name, amount in saldo.items()
@@ -213,6 +227,7 @@ saldo_df = pd.DataFrame([
 st.dataframe(
     saldo_df.style.format({"Saldo": "{:,.0f}"}).background_gradient(subset=["Saldo"], cmap="Greens")
 )
+
 
 
 
