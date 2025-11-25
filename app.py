@@ -19,6 +19,58 @@ transactions_col = db["transactions"]
 
 st.title("📒 Aplikasi Pengelolaan Dompet & Pengeluaran")
 
+# ================================
+# RINGKASAN SALDO DI ATAS
+# ================================
+st.markdown("## 💼 Ringkasan Saldo")
+
+# pastikan df transaksi sudah ada
+transactions = list(transactions_col.find({}))
+df_summary = pd.DataFrame(transactions)
+
+# jika belum ada transaksi
+if len(df_summary) == 0:
+    df_summary = pd.DataFrame(columns=["type","source_id","target_id","amount"])
+
+# hitung saldo tiap dompet
+summary_saldo = {}
+
+for sid, name in source_options.items():
+    df_out = df_summary[df_summary["source_id"].astype(str) == sid]
+    df_in  = df_summary[df_summary["target_id"].astype(str) == sid]
+
+    total_income        = df_out[df_out["type"] == "income"]["amount"].sum()
+    total_transfer_in   = df_in[df_in["type"] == "transfer_in"]["amount"].sum()
+    total_expense       = df_out[df_out["type"] == "expense"]["amount"].sum()
+    total_transfer_out  = df_out[df_out["type"] == "transfer_out"]["amount"].sum()
+
+    saldo_akhir = (total_income + total_transfer_in) - (total_expense + total_transfer_out)
+
+    summary_saldo[name] = saldo_akhir
+
+total_semua = sum(summary_saldo.values())
+
+
+# ======== TAMPILKAN DALAM KOTAK / CARD ========
+cols = st.columns(len(summary_saldo) + 1)
+
+# tampilkan dompet satu per satu
+i = 0
+for dompet, nilai in summary_saldo.items():
+    with cols[i]:
+        st.metric(
+            label=f"💳 {dompet}",
+            value=f"Rp {nilai:,.0f}"
+        )
+    i += 1
+
+# kotak total saldo keseluruhan
+with cols[-1]:
+    st.metric(
+        label="💰 Total Seluruh Dompet",
+        value=f"Rp {total_semua:,.0f}"
+    )
+
 
 # ================================
 # FUNGSI MEMUAT DOMPET
