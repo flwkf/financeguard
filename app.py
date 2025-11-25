@@ -191,7 +191,7 @@ with tabs[2]:
                     wallet_keys,
                     format_func=lambda k: wallet_map[k]
                 )
-            else:
+            elif ttype == "transfer":
                 # ⬇⬇⬇ INI YANG DIPERBAIKI (PASTI MUNCUL)
                 w_from = st.selectbox(
                     "Dari (Dompet)",
