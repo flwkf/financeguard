@@ -174,34 +174,46 @@ with tabs[2]:
         st.info("Belum ada dompet. Tambah dompet dulu di tab 'Tambah Dompet'.")
     else:
         wallet_keys = list(wallet_map.keys())
+        wallet_options = wallet_keys # list of wallet IDs
 
         with st.form("form_trx", clear_on_submit=True):
             ttype = st.selectbox("Jenis Transaksi", ["income","expense","transfer"])
 
+            # Definisikan placeholder. Jika tidak digunakan, nilainya akan tetap None/kosong.
+            w_from = None
+            w_to = None
+
             if ttype == "income":
                 w_to = st.selectbox(
-                    "Dompet Tujuan",
-                    wallet_keys,
-                    format_func=lambda k: wallet_map[k]
+                    "Dompet Tujuan (Pemasukan ke)",
+                    wallet_options,
+                    format_func=lambda k: wallet_map[k],
+                    key="income_w_to" # Tambahkan key unik
                 )
+                w_from = None # Pastikan sumber adalah None untuk income
 
             elif ttype == "expense":
                 w_from = st.selectbox(
-                    "Dompet Sumber",
-                    wallet_keys,
-                    format_func=lambda k: wallet_map[k]
+                    "Dompet Sumber (Pengeluaran dari)",
+                    wallet_options,
+                    format_func=lambda k: wallet_map[k],
+                    key="expense_w_from" # Tambahkan key unik
                 )
+                w_to = None # Pastikan tujuan adalah None untuk expense
+                
             elif ttype == "transfer":
                 # ⬇⬇⬇ INI YANG DIPERBAIKI (PASTI MUNCUL)
                 w_from = st.selectbox(
                     "Dari (Dompet)",
-                    wallet_keys,
-                    format_func=lambda k: wallet_map[k]
+                    wallet_options,
+                    format_func=lambda k: wallet_map[k],
+                    key="transfer_w_from" # Tambahkan key unik
                 )
                 w_to = st.selectbox(
                     "Ke (Dompet)",
-                    wallet_keys,
-                    format_func=lambda k: wallet_map[k]
+                    wallet_options,
+                    format_func=lambda k: wallet_map[k],
+                    key="transfer_w_to" # Tambahkan key unik
                 )
 
             amount = st.number_input("Nominal (Rp)", min_value=0.0, format="%.2f")
@@ -216,9 +228,14 @@ with tabs[2]:
                     st.stop()
 
                 if ttype == "income":
+                    # Cek jika w_to tidak None (artinya sudah dipilih)
+                    if not w_to:
+                        st.error("Dompet Tujuan (income) harus dipilih.")
+                        st.stop()
+                    
                     insert_transaction({
                         "type": "income",
-                        "source_id": w_to,
+                        "source_id": w_to, # Di sini, w_to adalah dompet yang bertambah saldonya
                         "target_id": None,
                         "amount": float(amount),
                         "description": desc,
@@ -226,9 +243,14 @@ with tabs[2]:
                     })
 
                 elif ttype == "expense":
+                    # Cek jika w_from tidak None (artinya sudah dipilih)
+                    if not w_from:
+                        st.error("Dompet Sumber (expense) harus dipilih.")
+                        st.stop()
+                        
                     insert_transaction({
                         "type": "expense",
-                        "source_id": w_from,
+                        "source_id": w_from, # Di sini, w_from adalah dompet yang berkurang saldonya
                         "target_id": None,
                         "amount": float(amount),
                         "description": desc,
@@ -240,6 +262,7 @@ with tabs[2]:
                         st.error("Dompet asal dan tujuan tidak boleh sama")
                         st.stop()
 
+                    # Transaksi 1: transfer_out (pengurangan dari w_from)
                     insert_transaction({
                         "type": "transfer_out",
                         "source_id": w_from,
@@ -248,6 +271,7 @@ with tabs[2]:
                         "description": desc,
                         "created_at": datetime.combine(date_input, datetime.min.time())
                     })
+                    # Transaksi 2: transfer_in (penambahan ke w_to)
                     insert_transaction({
                         "type": "transfer_in",
                         "source_id": w_from,
