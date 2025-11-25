@@ -4,6 +4,7 @@ import pandas as pd
 from bson.objectid import ObjectId
 from datetime import datetime
 import altair as alt
+import matplotlib.pyplot as plt
 
 st.set_page_config(page_title="Dompet Manager", layout="wide")
 
