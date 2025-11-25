@@ -178,7 +178,15 @@ for sid, name in source_options.items():
 
     saldo[name] = total_in - (total_expense + total_transfer_out)
 
-st.write(saldo)
+saldo_df = pd.DataFrame([
+    {"Dompet": name, "Saldo": amount}
+    for name, amount in saldo.items()
+])
+
+st.dataframe(
+    saldo_df.style.format({"Saldo": "{:,.0f}"}).background_gradient(subset=["Saldo"], cmap="Greens")
+)
+
 
 
 # ================================
