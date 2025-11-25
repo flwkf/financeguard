@@ -1,230 +1,197 @@
 import streamlit as st
 from pymongo import MongoClient
-from bson.objectid import ObjectId
-from datetime import datetime, timedelta
 import pandas as pd
+from bson.objectid import ObjectId
+from datetime import datetime
 import altair as alt
-import os
 
-# ===============================
-# KONFIGURASI MONGO ATLAS
-# ===============================
-MONGO_URI = st.secrets["MONGO_URI"]  # pastikan kamu isi di .streamlit/secrets.toml
+st.set_page_config(page_title="Dompet Manager", layout="wide")
+
+# ================================
+# KONEKSI MONGO
+# ================================
+MONGO_URI = st.secrets["MONGO_URI"]
 client = MongoClient(MONGO_URI)
+db = client["keuangan_app"]
+sources_col = db["sources"]
+transactions_col = db["transactions"]
 
-# Jika URI tidak punya default DB → fallback
-try:
-    db = client.get_default_database()
-except:
-    db = client["financeguard"]
-
-sources_col = db["wallet_sources"]
-expenses_col = db["expenses"]
-
-st.title("📒 Aplikasi Pencatatan Dompet & Pengeluaran")
+st.title("📒 Aplikasi Pengelolaan Dompet & Pengeluaran")
 
 
-# ===============================
-# AMBIL DATA SUMBER DANA
-# ===============================
+# ================================
+# FUNGSI MEMUAT DOMPET
+# ================================
 def load_sources():
-    src_list = list(sources_col.find())
-    return {str(s["_id"]): s["name"] for s in src_list}
+    data = list(sources_col.find())
+    return {str(d["_id"]): d["name"] for d in data}
 
+
+# ================================
+# BAGIAN 1: TAMBAH DOMPET
+# ================================
+st.subheader("➕ Tambah Dompet Baru")
+
+with st.form("add_wallet"):
+    nama_dompet = st.text_input("Nama Dompet (contoh: Mandiri, ShopeePay, Cash)")
+    submit_dompet = st.form_submit_button("Tambah")
+
+if submit_dompet and nama_dompet.strip():
+    sources_col.insert_one({"name": nama_dompet})
+    st.success(f"Dompet '{nama_dompet}' berhasil ditambahkan!")
+
+
+# ================================
+# REFRESH DOMPET
+# ================================
 source_options = load_sources()
 
 
-# ===============================
-# TAMBAH SUMBER DOMPET
-# ===============================
-st.subheader("Tambah Sumber Dompet")
-with st.form("add_source_form", clear_on_submit=True):
-    new_source = st.text_input("Nama sumber (contoh: Mandiri, ShopeePay, Cash)")
-    add_src = st.form_submit_button("Tambah Sumber")
+# ================================
+# BAGIAN 2: INPUT PENGELUARAN
+# ================================
+st.subheader("💸 Catat Pengeluaran")
 
-    if add_src:
-        if new_source.strip() == "":
-            st.error("Nama sumber tidak boleh kosong.")
-        else:
-            sources_col.insert_one({"name": new_source})
-            st.success("Sumber berhasil ditambahkan!")
-            st.experimental_rerun()
+with st.form("expense_form"):
+    source_exp = st.selectbox("Pilih Sumber Dana", list(source_options.keys()),
+                              format_func=lambda x: source_options[x])
+    amount_exp = st.number_input("Nominal Pengeluaran", min_value=0.0)
+    desc_exp = st.text_input("Deskripsi")
+    submit_exp = st.form_submit_button("Catat Pengeluaran")
 
-
-# ===============================
-# FUNGSI: TAMBAH PENGELUARAN
-# ===============================
-def add_expense(amount, source_id, note, date):
-    try:
-        amount_val = float(amount)
-    except:
-        return False, "Nominal tidak valid."
-
-    doc = {
-        "amount": amount_val,
-        "source_id": ObjectId(source_id),
-        "note": note,
-        "date": datetime.combine(date, datetime.min.time()),
+if submit_exp and amount_exp > 0:
+    transactions_col.insert_one({
         "type": "expense",
-        "created_at": datetime.utcnow(),
-    }
-    expenses_col.insert_one(doc)
-    return True, "Pengeluaran berhasil dicatat."
+        "source_id": source_exp,
+        "amount": amount_exp,
+        "description": desc_exp,
+        "created_at": datetime.now()
+    })
+    st.success("Pengeluaran berhasil dicatat!")
 
 
-# ===============================
-# FORM PENGELUARAN
-# ===============================
-st.subheader("Catat Pengeluaran")
+# ================================
+# BAGIAN 3: TRANSFER ANTAR DOMPET
+# ================================
+st.subheader("🔁 Transfer Antar Dompet")
 
-if len(source_options) == 0:
-    st.warning("Tambahkan sumber dompet terlebih dahulu.")
-else:
-    with st.form("expense_form", clear_on_submit=True):
-        ex_amount = st.number_input("Nominal", min_value=0.0, format="%.2f")
-        ex_source = st.selectbox("Sumber Dana", options=list(source_options.keys()), format_func=lambda k: source_options[k])
-        ex_date = st.date_input("Tanggal", value=datetime.today().date())
-        ex_note = st.text_input("Catatan")
-        ex_submit = st.form_submit_button("Catat")
+with st.form("transfer_form"):
+    from_src = st.selectbox("Dari Dompet", list(source_options.keys()),
+                            format_func=lambda x: source_options[x])
+    to_src = st.selectbox("Ke Dompet", list(source_options.keys()),
+                          format_func=lambda x: source_options[x])
+    amount_trf = st.number_input("Nominal Transfer", min_value=0.0)
+    desc_trf = st.text_input("Deskripsi Transfer")
 
-        if ex_submit:
-            ok, msg = add_expense(ex_amount, ex_source, ex_note, ex_date)
-            if ok:
-                st.success(msg)
-            else:
-                st.error(msg)
+    submit_trf = st.form_submit_button("Transfer")
 
+if submit_trf and amount_trf > 0 and from_src != to_src:
 
-# ===============================
-# FUNGSI: TRANSFER ANTAR DOMPET
-# ===============================
-def add_transfer(amount, source_from, source_to, note, date):
-    amount_val = float(amount)
-    dt = datetime.combine(date, datetime.min.time())
-
-    # transaksi keluar
-    expenses_col.insert_one({
-        "amount": amount_val,
-        "source_id": ObjectId(source_from),
-        "note": f"Transfer ke {source_options[source_to]} - {note}",
-        "date": dt,
+    # catat keluar dari dompet asal
+    transactions_col.insert_one({
         "type": "transfer_out",
-        "created_at": datetime.utcnow()
+        "source_id": from_src,
+        "target_id": to_src,
+        "amount": amount_trf,
+        "description": desc_trf,
+        "created_at": datetime.now()
     })
 
-    # transaksi masuk
-    expenses_col.insert_one({
-        "amount": amount_val,
-        "source_id": ObjectId(source_to),
-        "note": f"Transfer dari {source_options[source_from]} - {note}",
-        "date": dt,
+    # catat masuk ke dompet tujuan
+    transactions_col.insert_one({
         "type": "transfer_in",
-        "created_at": datetime.utcnow()
+        "source_id": from_src,
+        "target_id": to_src,
+        "amount": amount_trf,
+        "description": desc_trf,
+        "created_at": datetime.now()
     })
 
-    return True, "Transfer berhasil."
+    st.success("Transfer berhasil dicatat!")
 
 
-# ===============================
-# FORM TRANSFER
-# ===============================
-st.subheader("Transfer Antar Dompet")
+# ================================
+# LOAD TRANSAKSI
+# ================================
+transactions = list(transactions_col.find({}, sort=[("created_at", -1)]))
 
-if len(source_options) < 2:
-    st.info("Tambahkan minimal 2 dompet untuk dapat transfer.")
+if len(transactions) > 0:
+    df = pd.DataFrame(transactions)
+    df["created_at"] = pd.to_datetime(df["created_at"])
 else:
-    with st.form("transfer_form", clear_on_submit=True):
-        tf_amount = st.number_input("Nominal Transfer", min_value=0.0, format="%.2f")
-        col1, col2 = st.columns(2)
-        with col1:
-            tf_from = st.selectbox("Dari", options=list(source_options.keys()), format_func=lambda k: source_options[k])
-        with col2:
-            tf_to = st.selectbox("Ke", options=list(source_options.keys()), format_func=lambda k: source_options[k])
-
-        tf_date = st.date_input("Tanggal Transfer", value=datetime.today().date())
-        tf_note = st.text_input("Catatan (opsional)")
-        tf_submit = st.form_submit_button("Catat Transfer")
-
-        if tf_submit:
-            if tf_from == tf_to:
-                st.error("Dompet asal dan tujuan tidak boleh sama.")
-            else:
-                ok, msg = add_transfer(tf_amount, tf_from, tf_to, tf_note, tf_date)
-                if ok:
-                    st.success(msg)
-                else:
-                    st.error(msg)
+    df = pd.DataFrame(columns=[
+        "type", "source_id", "target_id", "description",
+        "amount", "created_at"
+    ])
 
 
-# ===============================
-# LOAD DATA RIWAYAT
-# ===============================
-st.subheader("Riwayat Transaksi")
+# ================================
+# BAGIAN 4: LAPORAN TREN
+# ================================
+st.subheader("📊 Laporan Pengeluaran")
 
-data = list(expenses_col.find().sort("date", -1))
-
-if not data:
+if len(df) == 0:
     st.info("Belum ada transaksi.")
 else:
-    df = pd.DataFrame(data)
-    df["id"] = df["_id"].astype(str)
-    df["source"] = df["source_id"].astype(str).map(source_options)
-    df["date"] = pd.to_datetime(df["date"]).dt.date
+    df_exp = df[df["type"] == "expense"]
 
-    show_df = df[["date", "amount", "source", "note", "type"]]
-    st.dataframe(show_df)
+    if len(df_exp) > 0:
+        df_exp["date"] = df_exp["created_at"].dt.date
+        df_daily = df_exp.groupby("date")["amount"].sum().reset_index()
+
+        st.markdown("### Tren Harian")
+        st.line_chart(df_daily, x="date", y="amount")
+
+        df_exp["week"] = df_exp["created_at"].dt.isocalendar().week
+        df_week = df_exp.groupby("week")["amount"].sum().reset_index()
+
+        st.markdown("### Tren Mingguan")
+        st.bar_chart(df_week, x="week", y="amount")
+
+        df_exp["month"] = df_exp["created_at"].dt.to_period("M").astype(str)
+        df_month = df_exp.groupby("month")["amount"].sum().reset_index()
+
+        st.markdown("### Tren Bulanan")
+        st.area_chart(df_month, x="month", y="amount")
+    else:
+        st.info("Belum ada pengeluaran.")
 
 
-# ===============================
-# HITUNG SALDO TIAP DOMPET
-# ===============================
-st.subheader("Ringkasan Saldo Tiap Dompet")
+# ================================
+# BAGIAN 5: SALDO DOMPET
+# ================================
+st.subheader("💰 Saldo Setiap Dompet")
 
 saldo = {}
+
 for sid, name in source_options.items():
-    df_src = df[df["source_id"].astype(str) == sid]
 
-    total_in = df_src[df_src["type"].isin(["transfer_in"])]["amount"].sum()
-    total_out = df_src[df_src["type"].isin(["transfer_out", "expense"])]["amount"].sum()
+    # uang masuk dari transfer_in
+    df_in = df[df["target_id"].astype(str) == sid]
 
-    saldo[name] = total_in - total_out
+    # uang keluar: transfer_out + pengeluaran
+    df_out = df[df["source_id"].astype(str) == sid]
 
-saldo_df = pd.DataFrame({
-    "Dompet": saldo.keys(),
-    "Saldo": saldo.values()
-})
+    total_in = df_in[df_in["type"] == "transfer_in"]["amount"].sum()
+    total_expense = df_out[df_out["type"] == "expense"]["amount"].sum()
+    total_transfer_out = df_out[df_out["type"] == "transfer_out"]["amount"].sum()
 
-st.table(saldo_df)
+    saldo[name] = total_in - (total_expense + total_transfer_out)
+
+st.write(saldo)
 
 
-# ===============================
-# GRAFIK TREN HARIAN / MINGGUAN / BULANAN
-# ===============================
-st.subheader("Laporan Tren Pengeluaran")
+# ================================
+# BAGIAN 6: RIWAYAT TRANSAKSI
+# ================================
+st.subheader("📚 Riwayat Transaksi")
 
-df_exp = df[df["type"] == "expense"].copy()
-df_exp["date"] = pd.to_datetime(df_exp["date"])
-
-period = st.selectbox("Pilih periode", ["Harian", "Mingguan", "Bulanan"])
-
-if period == "Harian":
-    g = df_exp.groupby("date")["amount"].sum().reset_index()
-elif period == "Mingguan":
-    df_exp["week"] = df_exp["date"].dt.to_period("W").astype(str)
-    g = df_exp.groupby("week")["amount"].sum().reset_index()
-    g.rename(columns={"week": "date"}, inplace=True)
+if len(df) > 0:
+    show_df = df.copy()
+    show_df["source"] = show_df["source_id"].astype(str).map(source_options)
+    show_df["target"] = show_df["target_id"].astype(str).map(source_options)
+    st.dataframe(show_df[[
+        "created_at", "type", "source", "target", "description", "amount"
+    ]])
 else:
-    df_exp["month"] = df_exp["date"].dt.to_period("M").astype(str)
-    g = df_exp.groupby("month")["amount"].sum().reset_index()
-    g.rename(columns={"month": "date"}, inplace=True)
-
-chart = (
-    alt.Chart(g)
-    .mark_line(point=True)
-    .encode(
-        x="date:T",
-        y="amount:Q"
-    )
-)
-
-st.altair_chart(chart, use_container_width=True)
+    st.info("Belum ada transaksi.")
