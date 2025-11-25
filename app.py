@@ -232,81 +232,80 @@ st.dataframe(
 
 
 # ================================
-# BAGIAN 6: RIWAYAT TRANSAKSI + EDIT
+# BAGIAN 6: RIWAYAT TRANSAKSI
 # ================================
 st.subheader("📚 Riwayat Transaksi")
 
-if len(df) == 0:
-    st.info("Belum ada transaksi.")
-else:
+if len(df) > 0:
     show_df = df.copy()
+    show_df["_id"] = show_df["_id"].astype(str)
     show_df["source"] = show_df["source_id"].astype(str).map(source_options)
     show_df["target"] = show_df["target_id"].astype(str).map(source_options)
-    show_df["id"] = show_df["_id"].astype(str)
 
     st.dataframe(show_df[[
-        "id", "created_at", "type", "source", "target", "description", "amount"
+        "_id", "created_at", "type", "source", "target", "description", "amount"
     ]])
 
-    st.markdown("### ✏ Edit Transaksi")
+    st.markdown("### ✏️ Edit atau ❌ Hapus Transaksi")
 
-    # pilih transaksi
-    trx_id = st.selectbox(
-        "Pilih transaksi yang ingin diedit",
-        show_df["id"].tolist()
-    )
+    all_ids = list(show_df["_id"])
+    selected_id = st.selectbox("Pilih Transaksi", all_ids)
 
-    trx = df[df["_id"].astype(str) == trx_id].iloc[0]
+    selected_row = show_df[show_df["_id"] == selected_id].iloc[0]
 
-    # form edit
-    with st.form("edit_form"):
+    with st.form("edit_delete_form"):
         new_type = st.selectbox(
             "Jenis Transaksi",
             ["income", "expense", "transfer_in", "transfer_out"],
-            index=["income", "expense", "transfer_in", "transfer_out"].index(trx["type"])
+            index=["income", "expense", "transfer_in", "transfer_out"].index(selected_row["type"])
         )
 
         new_source = st.selectbox(
             "Dompet Sumber",
             list(source_options.keys()),
-            index=list(source_options.keys()).index(str(trx.get("source_id", ""))),
-            format_func=lambda x: source_options[x]
+            index=list(source_options.keys()).index(str(selected_row["source_id"]))
         )
 
-        # hanya untuk transfer
-        if new_type in ["transfer_in", "transfer_out"]:
-            new_target = st.selectbox(
-                "Dompet Tujuan",
-                list(source_options.keys()),
-                index=list(source_options.keys()).index(str(trx.get("target_id", ""))),
-                format_func=lambda x: source_options[x]
-            )
-        else:
-            new_target = None
+        new_target = st.selectbox(
+            "Dompet Tujuan (Khusus Transfer)",
+            [""] + list(source_options.keys()),
+            index=(1 + list(source_options.keys()).index(str(selected_row["target_id"])))
+            if pd.notna(selected_row["target_id"]) else 0
+        )
 
-        new_amount = st.number_input("Nominal", min_value=0.0, value=float(trx["amount"]))
-        new_desc = st.text_input("Deskripsi", value=trx.get("description", ""))
+        new_desc = st.text_input("Deskripsi", selected_row["description"])
+        new_amount = st.number_input("Nominal", min_value=0.0, value=float(selected_row["amount"]))
 
-        save_edit = st.form_submit_button("💾 Simpan Perubahan")
+        col1, col2 = st.columns(2)
+        edit_btn = col1.form_submit_button("Simpan Perubahan")
+        del_btn = col2.form_submit_button("Hapus Transaksi")
 
-    # proses update
-    if save_edit:
+    # ---- ACTION: EDIT ----
+    if edit_btn:
         update_data = {
             "type": new_type,
             "source_id": new_source,
+            "description": new_desc,
             "amount": new_amount,
-            "description": new_desc
         }
 
-        # target hanya untuk transfer
-        if new_type in ["transfer_in", "transfer_out"]:
+        if new_target != "":
             update_data["target_id"] = new_target
         else:
             update_data["target_id"] = None
 
         transactions_col.update_one(
-            {"_id": ObjectId(trx_id)},
+            {"_id": ObjectId(selected_id)},
             {"$set": update_data}
         )
+        st.success("Transaksi berhasil diperbarui!")
+        st.experimental_rerun()
 
-        st.success("Transaksi berhasil diperbarui! Silakan refresh halaman.")
+    # ---- ACTION: DELETE ----
+    if del_btn:
+        transactions_col.delete_one({"_id": ObjectId(selected_id)})
+        st.warning("Transaksi berhasil dihapus!")
+        st.experimental_rerun()
+
+else:
+    st.info("Belum ada transaksi.")
