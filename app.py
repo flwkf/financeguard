@@ -1,252 +1,230 @@
-# app.py
 import streamlit as st
 from pymongo import MongoClient
-from datetime import datetime
+from bson.objectid import ObjectId
+from datetime import datetime, timedelta
 import pandas as pd
 import altair as alt
 import os
-from bson.objectid import ObjectId
 
-# -------------------------
-# CONFIG / CONNECT TO MONGO
-# -------------------------
-# Recommended: set MONGO_URI as Streamlit secret or env var
-# e.g. in terminal before run: export MONGO_URI="mongodb+srv://user:pass@cluster0.../dbname?retryWrites=true&w=majority"
-MONGO_URI = st.secrets["mongo_uri"] if "mongo_uri" in st.secrets else os.getenv("MONGO_URI")
-if not MONGO_URI:
-    st.error("MONGO_URI belum diset. Simpan di Streamlit secrets (key: mongo_uri) atau environment variable MONGO_URI.")
-    st.stop()
-
+# ===============================
+# KONFIGURASI MONGO ATLAS
+# ===============================
+MONGO_URI = st.secrets["MONGO_URI"]  # pastikan kamu isi di .streamlit/secrets.toml
 client = MongoClient(MONGO_URI)
-db_name = "financeguard"   # bebas, sesuaikan sendiri
-db = client[db_name]
+
+# Jika URI tidak punya default DB → fallback
+try:
+    db = client.get_default_database()
+except:
+    db = client["financeguard"]
+
 sources_col = db["wallet_sources"]
 expenses_col = db["expenses"]
 
-# -------------------------
-# HELPERS
-# -------------------------
-def get_sources_list():
-    docs = list(sources_col.find().sort("name", 1))
-    return docs
+st.title("📒 Aplikasi Pencatatan Dompet & Pengeluaran")
 
-def add_source(name):
-    if not name.strip():
-        return False, "Nama sumber kosong."
-    if sources_col.find_one({"name": name.strip()}):
-        return False, "Sumber sudah ada."
-    sources_col.insert_one({
-        "name": name.strip(),
-        "created_at": datetime.utcnow()
-    })
-    return True, "Sumber ditambahkan."
 
-def delete_source(source_id):
-    # only delete if no expenses reference OR optionally cascade
-    cnt = expenses_col.count_documents({"source_id": ObjectId(source_id)})
-    if cnt > 0:
-        return False, f"Tidak dapat menghapus: ada {cnt} pengeluaran terkait. Hapus pengeluaran dulu atau pindahkan sumber."
-    sources_col.delete_one({"_id": ObjectId(source_id)})
-    return True, "Sumber dihapus."
+# ===============================
+# AMBIL DATA SUMBER DANA
+# ===============================
+def load_sources():
+    src_list = list(sources_col.find())
+    return {str(s["_id"]): s["name"] for s in src_list}
 
+source_options = load_sources()
+
+
+# ===============================
+# TAMBAH SUMBER DOMPET
+# ===============================
+st.subheader("Tambah Sumber Dompet")
+with st.form("add_source_form", clear_on_submit=True):
+    new_source = st.text_input("Nama sumber (contoh: Mandiri, ShopeePay, Cash)")
+    add_src = st.form_submit_button("Tambah Sumber")
+
+    if add_src:
+        if new_source.strip() == "":
+            st.error("Nama sumber tidak boleh kosong.")
+        else:
+            sources_col.insert_one({"name": new_source})
+            st.success("Sumber berhasil ditambahkan!")
+            st.experimental_rerun()
+
+
+# ===============================
+# FUNGSI: TAMBAH PENGELUARAN
+# ===============================
 def add_expense(amount, source_id, note, date):
     try:
         amount_val = float(amount)
     except:
         return False, "Nominal tidak valid."
+
     doc = {
         "amount": amount_val,
         "source_id": ObjectId(source_id),
-        "note": note.strip(),
+        "note": note,
         "date": datetime.combine(date, datetime.min.time()),
-        "created_at": datetime.utcnow()
+        "type": "expense",
+        "created_at": datetime.utcnow(),
     }
     expenses_col.insert_one(doc)
-    return True, "Pengeluaran tercatat."
+    return True, "Pengeluaran berhasil dicatat."
 
-def delete_expense(expense_id):
-    expenses_col.delete_one({"_id": ObjectId(expense_id)})
-    return True
 
-def expenses_to_df(filter_source_id=None, start=None, end=None):
-    query = {}
-    if filter_source_id:
-        query["source_id"] = ObjectId(filter_source_id)
-    if start:
-        query["date"] = query.get("date", {})
-        query["date"]["$gte"] = start
-    if end:
-        query["date"] = query.get("date", {})
-        query["date"]["$lte"] = end
-    docs = list(expenses_col.find(query).sort("date", -1))
-    if not docs:
-        return pd.DataFrame(columns=["_id","date","amount","source_id","source_name","note"])
-    # load sources map
-    sources = {s["_id"]: s["name"] for s in get_sources_list()}
-    rows = []
-    for d in docs:
-        rows.append({
-            "_id": str(d["_id"]),
-            "date": d.get("date"),
-            "amount": d.get("amount", 0.0),
-            "source_id": str(d.get("source_id")),
-            "source_name": sources.get(d.get("source_id"), "Unknown"),
-            "note": d.get("note","")
-        })
-    df = pd.DataFrame(rows)
-    return df
+# ===============================
+# FORM PENGELUARAN
+# ===============================
+st.subheader("Catat Pengeluaran")
 
-def aggregate_trend(df, period="D"):  # D=day, W=week, M=month
-    if df.empty:
-        return df
-    tmp = df.copy()
-    tmp["date"] = pd.to_datetime(tmp["date"])
-    if period == "D":
-        tmp["period"] = tmp["date"].dt.date
-    elif period == "W":
-        tmp["period"] = tmp["date"].dt.to_period("W").apply(lambda r: r.start_time.date())
-    elif period == "M":
-        tmp["period"] = tmp["date"].dt.to_period("M").apply(lambda r: r.start_time.date())
-    agg = tmp.groupby("period", as_index=False)["amount"].sum().sort_values("period")
-    return agg
+if len(source_options) == 0:
+    st.warning("Tambahkan sumber dompet terlebih dahulu.")
+else:
+    with st.form("expense_form", clear_on_submit=True):
+        ex_amount = st.number_input("Nominal", min_value=0.0, format="%.2f")
+        ex_source = st.selectbox("Sumber Dana", options=list(source_options.keys()), format_func=lambda k: source_options[k])
+        ex_date = st.date_input("Tanggal", value=datetime.today().date())
+        ex_note = st.text_input("Catatan")
+        ex_submit = st.form_submit_button("Catat")
 
-# -------------------------
-# UI LAYOUT
-# -------------------------
-st.set_page_config(page_title="Dompet Multi-Sumber", layout="wide")
-st.title("Aplikasi Pencatatan Pengeluaran — Multi Sumber")
-
-# Sidebar: manage sources + filter
-st.sidebar.header("Sumber Dana")
-with st.sidebar.form("add_source_form", clear_on_submit=True):
-    new_source_name = st.text_input("Nama sumber (mis. Mandiri, ShopeePay, Cash)", "")
-    submitted = st.form_submit_button("Tambah sumber")
-    if submitted:
-        ok, msg = add_source(new_source_name)
-        if ok:
-            st.success(msg)
-        else:
-            st.error(msg)
-
-sources = get_sources_list()
-source_options = {str(s["_id"]): s["name"] for s in sources}
-st.sidebar.markdown("**Daftar sumber**")
-if sources:
-    for s in sources:
-        cols = st.sidebar.columns([3,1])
-        cols[0].markdown(f"- **{s['name']}**")
-        if cols[1].button("Hapus", key=f"delsrc_{s['_id']}"):
-            ok, msg = delete_source(s["_id"])
+        if ex_submit:
+            ok, msg = add_expense(ex_amount, ex_source, ex_note, ex_date)
             if ok:
                 st.success(msg)
-                st.experimental_rerun()
             else:
                 st.error(msg)
+
+
+# ===============================
+# FUNGSI: TRANSFER ANTAR DOMPET
+# ===============================
+def add_transfer(amount, source_from, source_to, note, date):
+    amount_val = float(amount)
+    dt = datetime.combine(date, datetime.min.time())
+
+    # transaksi keluar
+    expenses_col.insert_one({
+        "amount": amount_val,
+        "source_id": ObjectId(source_from),
+        "note": f"Transfer ke {source_options[source_to]} - {note}",
+        "date": dt,
+        "type": "transfer_out",
+        "created_at": datetime.utcnow()
+    })
+
+    # transaksi masuk
+    expenses_col.insert_one({
+        "amount": amount_val,
+        "source_id": ObjectId(source_to),
+        "note": f"Transfer dari {source_options[source_from]} - {note}",
+        "date": dt,
+        "type": "transfer_in",
+        "created_at": datetime.utcnow()
+    })
+
+    return True, "Transfer berhasil."
+
+
+# ===============================
+# FORM TRANSFER
+# ===============================
+st.subheader("Transfer Antar Dompet")
+
+if len(source_options) < 2:
+    st.info("Tambahkan minimal 2 dompet untuk dapat transfer.")
 else:
-    st.sidebar.write("Belum ada sumber. Tambahkan di atas.")
+    with st.form("transfer_form", clear_on_submit=True):
+        tf_amount = st.number_input("Nominal Transfer", min_value=0.0, format="%.2f")
+        col1, col2 = st.columns(2)
+        with col1:
+            tf_from = st.selectbox("Dari", options=list(source_options.keys()), format_func=lambda k: source_options[k])
+        with col2:
+            tf_to = st.selectbox("Ke", options=list(source_options.keys()), format_func=lambda k: source_options[k])
 
-st.sidebar.markdown("---")
-st.sidebar.header("Filter & Impor")
-with st.sidebar.form("filter_form"):
-    src_filter = st.selectbox("Filter sumber (semua jika kosong)", options=[""] + list(source_options.keys()), format_func=lambda x: "Semua" if x=="" else source_options.get(x, x))
-    start_date = st.date_input("Mulai dari", value=None)
-    end_date = st.date_input("Sampai", value=None)
-    btn_filter = st.form_submit_button("Terapkan filter")
-    if btn_filter:
-        pass  # values used below
+        tf_date = st.date_input("Tanggal Transfer", value=datetime.today().date())
+        tf_note = st.text_input("Catatan (opsional)")
+        tf_submit = st.form_submit_button("Catat Transfer")
 
-# Main: add expense
-st.subheader("Catat Pengeluaran")
-cols = st.columns(2)
-with cols[0]:
-    if not sources:
-        st.info("Tambahkan sumber dana di sidebar terlebih dahulu.")
-    else:
-        with st.form("expense_form", clear_on_submit=True):
-            amt = st.number_input("Nominal (Rp)", min_value=0.0, format="%.2f")
-            src_choice = st.selectbox("Pilih sumber", options=list(source_options.keys()), format_func=lambda k: source_options.get(k))
-            date_choice = st.date_input("Tanggal pengeluaran", value=datetime.today().date())
-            note = st.text_input("Catatan (opsional)")
-            submit_exp = st.form_submit_button("Simpan pengeluaran")
-            if submit_exp:
-                ok, msg = add_expense(amt, src_choice, note, date_choice)
+        if tf_submit:
+            if tf_from == tf_to:
+                st.error("Dompet asal dan tujuan tidak boleh sama.")
+            else:
+                ok, msg = add_transfer(tf_amount, tf_from, tf_to, tf_note, tf_date)
                 if ok:
                     st.success(msg)
                 else:
                     st.error(msg)
 
-st.markdown("---")
-st.subheader("Daftar Pengeluaran")
-# get dataframe with filters
-df = expenses_to_df(filter_source_id=(src_filter if src_filter!="" else None),
-                    start=(pd.to_datetime(start_date) if start_date else None),
-                    end=(pd.to_datetime(end_date) if end_date else None))
-if df.empty:
-    st.write("Belum ada pengeluaran untuk filter ini.")
+
+# ===============================
+# LOAD DATA RIWAYAT
+# ===============================
+st.subheader("Riwayat Transaksi")
+
+data = list(expenses_col.find().sort("date", -1))
+
+if not data:
+    st.info("Belum ada transaksi.")
 else:
-    # show table and allow deletion
-    df_display = df.copy()
-    df_display["date"] = pd.to_datetime(df_display["date"]).dt.date
-    df_display = df_display[["_id","date","amount","source_name","note"]].rename(columns={
-        "_id":"id","date":"Tanggal","amount":"Nominal","source_name":"Sumber","note":"Catatan"
-    })
-    st.dataframe(df_display.sort_values("Tanggal", ascending=False).reset_index(drop=True), use_container_width=True)
+    df = pd.DataFrame(data)
+    df["id"] = df["_id"].astype(str)
+    df["source"] = df["source_id"].astype(str).map(source_options)
+    df["date"] = pd.to_datetime(df["date"]).dt.date
 
-    # deletion
-    st.markdown("**Hapus pengeluaran**")
-    del_id = st.text_input("Masukkan id pengeluaran untuk dihapus (lihat kolom id)", "")
-    if st.button("Hapus pengeluaran"):
-        if del_id.strip():
-            try:
-                delete_expense(del_id.strip())
-                st.success("Pengeluaran dihapus.")
-                st.experimental_rerun()
-            except Exception as e:
-                st.error("Gagal menghapus. Pastikan id benar.")
-        else:
-            st.error("Masukkan id yang valid.")
+    show_df = df[["date", "amount", "source", "note", "type"]]
+    st.dataframe(show_df)
 
-# -------------------------
-# REPORTS / TRENDS
-# -------------------------
-st.markdown("---")
-st.subheader("Laporan Tren")
 
-# choose period and source
-report_col1, report_col2 = st.columns([2,1])
-with report_col1:
-    rep_src = st.selectbox("Pilih sumber untuk laporan", options=["Semua"] + list(source_options.values()))
-with report_col2:
-    rep_period = st.selectbox("Periode tren", options=["Harian","Mingguan","Bulanan"])
+# ===============================
+# HITUNG SALDO TIAP DOMPET
+# ===============================
+st.subheader("Ringkasan Saldo Tiap Dompet")
 
-# prepare df for report (ignore deletion id)
-# convert df amounts to numeric
-df_report = df.copy()
-if not df_report.empty:
-    df_report["date"] = pd.to_datetime(df_report["date"])
-    # if specific source selected
-    if rep_src != "Semua":
-        df_report = df_report[df_report["source_name"] == rep_src]
+saldo = {}
+for sid, name in source_options.items():
+    df_src = df[df["source_id"].astype(str) == sid]
 
-# aggregate
-if df_report.empty:
-    st.info("Tidak ada data untuk membuat laporan (periksa filter/tanggal).")
+    total_in = df_src[df_src["type"].isin(["transfer_in"])]["amount"].sum()
+    total_out = df_src[df_src["type"].isin(["transfer_out", "expense"])]["amount"].sum()
+
+    saldo[name] = total_in - total_out
+
+saldo_df = pd.DataFrame({
+    "Dompet": saldo.keys(),
+    "Saldo": saldo.values()
+})
+
+st.table(saldo_df)
+
+
+# ===============================
+# GRAFIK TREN HARIAN / MINGGUAN / BULANAN
+# ===============================
+st.subheader("Laporan Tren Pengeluaran")
+
+df_exp = df[df["type"] == "expense"].copy()
+df_exp["date"] = pd.to_datetime(df_exp["date"])
+
+period = st.selectbox("Pilih periode", ["Harian", "Mingguan", "Bulanan"])
+
+if period == "Harian":
+    g = df_exp.groupby("date")["amount"].sum().reset_index()
+elif period == "Mingguan":
+    df_exp["week"] = df_exp["date"].dt.to_period("W").astype(str)
+    g = df_exp.groupby("week")["amount"].sum().reset_index()
+    g.rename(columns={"week": "date"}, inplace=True)
 else:
-    period_code = {"Harian":"D","Mingguan":"W","Bulanan":"M"}[rep_period]
-    agg = aggregate_trend(df_report, period=period_code)
-    if agg.empty:
-        st.write("Tidak ada data teragregasi.")
-    else:
-        # chart with altair
-        agg["period"] = pd.to_datetime(agg["period"])
-        chart = alt.Chart(agg).mark_line(point=True).encode(
-            x=alt.X("period:T", title="Periode"),
-            y=alt.Y("amount:Q", title="Total Pengeluaran (Rp)"),
-            tooltip=[alt.Tooltip("period:T", title="Periode"), alt.Tooltip("amount:Q", title="Total (Rp)")]
-        ).properties(width=800, height=300)
-        st.altair_chart(chart, use_container_width=True)
-        st.write("Tabel ringkasan:")
-        st.dataframe(agg.assign(period=agg["period"].dt.date).rename(columns={"period":"Periode","amount":"Total (Rp)"}))
+    df_exp["month"] = df_exp["date"].dt.to_period("M").astype(str)
+    g = df_exp.groupby("month")["amount"].sum().reset_index()
+    g.rename(columns={"month": "date"}, inplace=True)
 
-st.markdown("---")
-st.caption("Catatan: gunakan Streamlit secrets (Key: mongo_uri) atau environment variable MONGO_URI untuk menyimpan koneksi ke MongoDB Atlas.")
+chart = (
+    alt.Chart(g)
+    .mark_line(point=True)
+    .encode(
+        x="date:T",
+        y="amount:Q"
+    )
+)
+
+st.altair_chart(chart, use_container_width=True)
