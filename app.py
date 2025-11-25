@@ -299,13 +299,13 @@ if len(df) > 0:
             {"$set": update_data}
         )
         st.success("Transaksi berhasil diperbarui!")
-        st.experimental_rerun()
+        st.rerun()
 
     # ---- ACTION: DELETE ----
     if del_btn:
         transactions_col.delete_one({"_id": ObjectId(selected_id)})
         st.warning("Transaksi berhasil dihapus!")
-        st.experimental_rerun()
+        st.rerun()
 
 else:
     st.info("Belum ada transaksi.")
