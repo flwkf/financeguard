@@ -47,6 +47,30 @@ if submit_dompet and nama_dompet.strip():
 # ================================
 source_options = load_sources()
 
+# ================================
+# BAGIAN: INPUT PEMASUKAN
+# ================================
+st.subheader("💰 Catat Pemasukan")
+
+with st.form("income_form"):
+    source_inc = st.selectbox(
+        "Pilih Dompet Tujuan",
+        list(source_options.keys()),
+        format_func=lambda x: source_options[x]
+    )
+    amount_inc = st.number_input("Nominal Pemasukan", min_value=0.0)
+    desc_inc = st.text_input("Deskripsi Pemasukan")
+    submit_inc = st.form_submit_button("Catat Pemasukan")
+
+if submit_inc and amount_inc > 0:
+    transactions_col.insert_one({
+        "type": "income",
+        "source_id": source_inc,
+        "amount": amount_inc,
+        "description": desc_inc,
+        "created_at": datetime.now()
+    })
+    st.success("Pemasukan berhasil dicatat!")
 
 # ================================
 # BAGIAN 2: INPUT PENGELUARAN
@@ -173,11 +197,13 @@ for sid, name in source_options.items():
     # uang keluar: transfer_out + pengeluaran
     df_out = df[df["source_id"].astype(str) == sid]
 
-    total_in = df_in[df_in["type"] == "transfer_in"]["amount"].sum()
+    total_transfer_in = df_in[df_in["type"] == "transfer_in"]["amount"].sum()
+    total_income = df_out[df_out["type"] == "income"]["amount"].sum()
+
     total_expense = df_out[df_out["type"] == "expense"]["amount"].sum()
     total_transfer_out = df_out[df_out["type"] == "transfer_out"]["amount"].sum()
 
-    saldo[name] = total_in - (total_expense + total_transfer_out)
+    saldo[name] = (total_transfer_in + total_income) - (total_expense + total_transfer_out)
 
 saldo_df = pd.DataFrame([
     {"Dompet": name, "Saldo": amount}
