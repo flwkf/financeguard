@@ -6,11 +6,10 @@ import datetime
 # ---------------------------
 # MONGODB CONNECTION
 # ---------------------------
-client = MongoClient(st.secrets["mongo"]["uri"])
+client = MongoClient(MONGO_URI)
 db = client["finance"]
 wallets_col = db["wallets"]
 trx_col = db["transactions"]
-
 st.set_page_config(page_title="FinanceGuard", layout="wide")
 
 # ---------------------------
