@@ -235,7 +235,7 @@ with tabs[2]:
                         "created_at": datetime.combine(date_input, datetime.min.time())
                     })
 
-                else:  # transfer
+                elif ttype == "transfer":
                     if w_from == w_to:
                         st.error("Dompet asal dan tujuan tidak boleh sama")
                         st.stop()
