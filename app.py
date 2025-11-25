@@ -177,45 +177,53 @@ with tabs[2]:
         wallet_options = wallet_keys # list of wallet IDs
 
         with st.form("form_trx", clear_on_submit=True):
-            ttype = st.selectbox("Jenis Transaksi", ["income","expense","transfer"])
+            ttype = st.selectbox("Jenis Transaksi", ["income","expense","transfer"], key="main_ttype")
 
-            # Definisikan placeholder. Jika tidak digunakan, nilainya akan tetap None/kosong.
+            # Inisialisasi placeholder di awal
             w_from = None
             w_to = None
 
-            if ttype == "income":
-                w_to = st.selectbox(
-                    "Dompet Tujuan (Pemasukan ke)",
-                    wallet_options,
-                    format_func=lambda k: wallet_map[k],
-                    key="income_w_to" # Tambahkan key unik
-                )
-                w_from = None # Pastikan sumber adalah None untuk income
+            # Buat container kosong untuk menempatkan selectbox dompet secara dinamis
+            wallet_container = st.empty()
+            
+            # Tampilkan selectbox yang relevan di dalam container
+            with wallet_container.container():
+                if ttype == "income":
+                    # Pemasukan hanya butuh Dompet Tujuan (tempat saldo masuk)
+                    w_to = st.selectbox(
+                        "Dompet Tujuan (Pemasukan ke)",
+                        wallet_options,
+                        format_func=lambda k: wallet_map[k],
+                        key="w_to_income"
+                    )
+                    w_from = None # Pastikan w_from tetap None
 
-            elif ttype == "expense":
-                w_from = st.selectbox(
-                    "Dompet Sumber (Pengeluaran dari)",
-                    wallet_options,
-                    format_func=lambda k: wallet_map[k],
-                    key="expense_w_from" # Tambahkan key unik
-                )
-                w_to = None # Pastikan tujuan adalah None untuk expense
-                
-            elif ttype == "transfer":
-                # ⬇⬇⬇ INI YANG DIPERBAIKI (PASTI MUNCUL)
-                w_from = st.selectbox(
-                    "Dari (Dompet)",
-                    wallet_options,
-                    format_func=lambda k: wallet_map[k],
-                    key="transfer_w_from" # Tambahkan key unik
-                )
-                w_to = st.selectbox(
-                    "Ke (Dompet)",
-                    wallet_options,
-                    format_func=lambda k: wallet_map[k],
-                    key="transfer_w_to" # Tambahkan key unik
-                )
+                elif ttype == "expense":
+                    # Pengeluaran hanya butuh Dompet Sumber (tempat saldo keluar)
+                    w_from = st.selectbox(
+                        "Dompet Sumber (Pengeluaran dari)",
+                        wallet_options,
+                        format_func=lambda k: wallet_map[k],
+                        key="w_from_expense"
+                    )
+                    w_to = None # Pastikan w_to tetap None
+                    
+                elif ttype == "transfer":
+                    # Transfer butuh Dompet Sumber dan Dompet Tujuan
+                    w_from = st.selectbox(
+                        "Dari (Dompet Sumber)",
+                        wallet_options,
+                        format_func=lambda k: wallet_map[k],
+                        key="w_from_transfer"
+                    )
+                    w_to = st.selectbox(
+                        "Ke (Dompet Tujuan)",
+                        wallet_options,
+                        format_func=lambda k: wallet_map[k],
+                        key="w_to_transfer"
+                    )
 
+            # Bagian input di bawah ini tetap sama (di luar wallet_container)
             amount = st.number_input("Nominal (Rp)", min_value=0.0, format="%.2f")
             desc = st.text_input("Deskripsi / Catatan (opsional)")
             date_input = st.date_input("Tanggal transaksi", value=date.today())
@@ -227,15 +235,15 @@ with tabs[2]:
                     st.error("Nominal harus lebih besar dari 0")
                     st.stop()
 
+                # Pengecekan dan logic insert transaction
                 if ttype == "income":
-                    # Cek jika w_to tidak None (artinya sudah dipilih)
                     if not w_to:
                         st.error("Dompet Tujuan (income) harus dipilih.")
                         st.stop()
                     
                     insert_transaction({
                         "type": "income",
-                        "source_id": w_to, # Di sini, w_to adalah dompet yang bertambah saldonya
+                        "source_id": w_to,
                         "target_id": None,
                         "amount": float(amount),
                         "description": desc,
@@ -243,14 +251,13 @@ with tabs[2]:
                     })
 
                 elif ttype == "expense":
-                    # Cek jika w_from tidak None (artinya sudah dipilih)
                     if not w_from:
                         st.error("Dompet Sumber (expense) harus dipilih.")
                         st.stop()
                         
                     insert_transaction({
                         "type": "expense",
-                        "source_id": w_from, # Di sini, w_from adalah dompet yang berkurang saldonya
+                        "source_id": w_from,
                         "target_id": None,
                         "amount": float(amount),
                         "description": desc,
@@ -261,6 +268,10 @@ with tabs[2]:
                     if w_from == w_to:
                         st.error("Dompet asal dan tujuan tidak boleh sama")
                         st.stop()
+                        
+                    if not w_from or not w_to:
+                         st.error("Dompet asal dan tujuan harus dipilih untuk transfer.")
+                         st.stop()
 
                     # Transaksi 1: transfer_out (pengurangan dari w_from)
                     insert_transaction({
