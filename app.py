@@ -394,27 +394,37 @@ with tabs[3]:
                     st.error("Gagal update: " + str(e))
 
 # ---------------------------
-# TAB: Laporan (Altair full)
+# TAB: Laporan (Altair full + filter tanggal + search)
 # ---------------------------
 with tabs[4]:
     st.title("📈 Laporan & Visualisasi")
     wallet_map = load_wallets()
     df = load_transactions_df()
 
-    # ensure datetime
     if df.empty:
         st.info("Belum ada transaksi untuk laporan.")
     else:
         st.subheader("Filter Laporan")
-        col1,col2,col3 = st.columns(3)
+
+        col1, col2, col3 = st.columns(3)
         with col1:
             sel_wallet = st.selectbox("Pilih Dompet (Semua)", ["Semua"] + list(wallet_map.values()))
         with col2:
             sel_kind = st.selectbox("Jenis Laporan", ["Pengeluaran", "Pemasukan", "Semua"])
         with col3:
-            sel_period = st.selectbox("Periode", ["Harian","Mingguan","Bulanan"])
+            sel_period = st.selectbox("Periode", ["Harian", "Mingguan", "Bulanan"])
 
-        # prepare df for charts
+        # tambahkan filter tanggal dan search
+        st.markdown("### Filter Tambahan")
+        fcol1, fcol2 = st.columns(2)
+        with fcol1:
+            mulai = st.date_input("Dari tanggal (opsional)", value=None)
+        with fcol2:
+            sampai = st.date_input("Sampai tanggal (opsional)", value=None)
+
+        keyword = st.text_input("Cari di keterangan (opsional)", placeholder="contoh: makan, top up, bensin")
+
+        # siapkan df
         df_chart = df.copy()
         df_chart["wallet_src"] = df_chart["source_id"].astype(str).map(wallet_map)
         df_chart["wallet_tgt"] = df_chart["target_id"].astype(str).map(wallet_map)
@@ -422,53 +432,74 @@ with tabs[4]:
 
         # filter wallet
         if sel_wallet != "Semua":
-            df_chart = df_chart[(df_chart["wallet_src"]==sel_wallet) | (df_chart["wallet_tgt"]==sel_wallet)]
+            df_chart = df_chart[(df_chart["wallet_src"] == sel_wallet) | (df_chart["wallet_tgt"] == sel_wallet)]
 
-        # filter kind
+        # filter jenis laporan
         if sel_kind == "Pengeluaran":
-            df_chart = df_chart[df_chart["type"]=="expense"]
+            df_chart = df_chart[df_chart["type"] == "expense"]
         elif sel_kind == "Pemasukan":
-            df_chart = df_chart[df_chart["type"]=="income"]
+            df_chart = df_chart[df_chart["type"] == "income"]
+
+        # filter range tanggal
+        if mulai:
+            df_chart = df_chart[df_chart["date_only"] >= mulai]
+        if sampai:
+            df_chart = df_chart[df_chart["date_only"] <= sampai]
+
+        # filter berdasarkan keyword pada keterangan
+        if keyword and keyword.strip() != "":
+            kw = keyword.lower()
+            df_chart = df_chart[df_chart["description"].fillna("").str.lower().str.contains(kw)]
 
         if df_chart.empty:
             st.info("Tidak ada data setelah filter.")
         else:
+            # ---------------------
+            # Grafik berdasarkan periode
+            # ---------------------
             if sel_period == "Harian":
                 agg = df_chart.groupby("date_only", as_index=False)["amount"].sum()
-                agg = agg.rename(columns={"date_only":"Tanggal","amount":"Total"})
+                agg = agg.rename(columns={"date_only": "Tanggal", "amount": "Total"})
                 chart = alt.Chart(agg).mark_line(point=True).encode(
                     x=alt.X("Tanggal:T"),
                     y=alt.Y("Total:Q"),
-                    tooltip=["Tanggal","Total"]
-                ).properties(height=350)
-                st.altair_chart(chart, use_container_width=True)
-            elif sel_period == "Mingguan":
-                df_chart["week"] = pd.to_datetime(df_chart["created_at"]).dt.to_period("W").apply(lambda r: r.start_time)
-                agg = df_chart.groupby("week", as_index=False)["amount"].sum()
-                agg = agg.rename(columns={"week":"Minggu","amount":"Total"})
-                chart = alt.Chart(agg).mark_bar().encode(
-                    x=alt.X("Minggu:T"),
-                    y=alt.Y("Total:Q"),
-                    tooltip=["Minggu","Total"]
-                ).properties(height=350)
-                st.altair_chart(chart, use_container_width=True)
-            else:
-                df_chart["month"] = pd.to_datetime(df_chart["created_at"]).dt.to_period("M").astype(str)
-                agg = df_chart.groupby("month", as_index=False)["amount"].sum()
-                agg = agg.rename(columns={"month":"Bulan","amount":"Total"})
-                chart = alt.Chart(agg).mark_area(opacity=0.5).encode(
-                    x=alt.X("Bulan:T"),
-                    y=alt.Y("Total:Q"),
-                    tooltip=["Bulan","Total"]
+                    tooltip=["Tanggal", "Total"]
                 ).properties(height=350)
                 st.altair_chart(chart, use_container_width=True)
 
-        st.markdown("---")
-        st.subheader("Tabel Ringkasan")
-        # show aggregated table
-        st.dataframe(df_chart[["_id","created_at","type","wallet_src","wallet_tgt","amount","description"]].rename(columns={
-            "_id":"ID","created_at":"Waktu","type":"Jenis","wallet_src":"Sumber","wallet_tgt":"Tujuan","amount":"Nominal","description":"Keterangan"
-        }))
+            elif sel_period == "Mingguan":
+                df_chart["week"] = pd.to_datetime(df_chart["created_at"]).dt.to_period("W").apply(lambda r: r.start_time)
+                agg = df_chart.groupby("week", as_index=False)["amount"].sum()
+                agg = agg.rename(columns={"week": "Minggu", "amount": "Total"})
+                chart = alt.Chart(agg).mark_bar().encode(
+                    x=alt.X("Minggu:T"),
+                    y=alt.Y("Total:Q"),
+                    tooltip=["Minggu", "Total"]
+                ).properties(height=350)
+                st.altair_chart(chart, use_container_width=True)
+
+            else:  # Bulanan
+                df_chart["month"] = pd.to_datetime(df_chart["created_at"]).dt.to_period("M").astype(str)
+                agg = df_chart.groupby("month", as_index=False)["amount"].sum()
+                agg = agg.rename(columns={"month": "Bulan", "amount": "Total"})
+                chart = alt.Chart(agg).mark_area(opacity=0.5).encode(
+                    x=alt.X("Bulan:T"),
+                    y=alt.Y("Total:Q"),
+                    tooltip=["Bulan", "Total"]
+                ).properties(height=350)
+                st.altair_chart(chart, use_container_width=True)
+
+            st.markdown("---")
+            st.subheader("Tabel Ringkasan")
+            st.dataframe(df_chart[["_id", "created_at", "type", "wallet_src", "wallet_tgt", "amount", "description"]].rename(columns={
+                "_id": "ID",
+                "created_at": "Waktu",
+                "type": "Jenis",
+                "wallet_src": "Sumber",
+                "wallet_tgt": "Tujuan",
+                "amount": "Nominal",
+                "description": "Keterangan"
+            }))
 
 # ---------------------------
 # END
