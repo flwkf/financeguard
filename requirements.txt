@@ -1,6 +1,7 @@
 streamlit
-pymongo
 pandas
-altair
-python-dotenv
-matplotlib
+numpy
+openpyxl
+xlrd
+lxml
+html5lib
